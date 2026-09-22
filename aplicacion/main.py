@@ -1,19 +1,26 @@
 from typing import Optional, Literal
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import pandas as pd
 import numpy as np
 import joblib
 import os
 from sklearn.preprocessing import StandardScaler
+import warnings
+from sklearn.exceptions import InconsistentVersionWarning
+
+# Ocultar advertencias de versiones
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
 
 tags_metadata = [
-    {"name": "social_media_dataset", "description": "Consulta de datos sobre redes sociales y bienestar."},
     {"name": "ml_predictions", "description": "Endpoints de predicción con Machine Learning (Scikit-Learn y XGBoost)."},
     {"name": "ml_clustering", "description": "Endpoints de aprendizaje no supervisado (Segmentación/Clustering)."},
 ]
 
+# Instancia global principal
 app = FastAPI(
     title="API Unificada de Diagnóstico, Salud Mental y Segmentación",
     description="Backend FastAPI con escalado de características integrado para clasificadores, regresores y clustering.",
@@ -21,7 +28,7 @@ app = FastAPI(
     openapi_tags=tags_metadata
 )
 
-# Configuración global de CORS para consumo desde el frontend
+# Configuración de CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,7 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rutas de los 7 modelos PKL
+# Rutas de los 7 modelos PKL dentro de la carpeta model/
 PATH_CLASSIFIER = "model/MWB_Classifier.pkl"
 PATH_REGRESSOR = "model/MWB_Regressor.pkl"
 PATH_GAD7_XGB = "model/MA_GAD7_Classifier.pkl"
@@ -58,6 +65,14 @@ modelo_phq9_reg = cargar_modelo(PATH_PHQ9_REG)
 modelo_kmeans = cargar_modelo(PATH_KMEANS)
 
 CLASES_MAPA = {0: "High", 1: "Low", 2: "Moderate", 3: "Severe"}
+
+PHQ9_CLASES_MAPA = {
+    0: "NONE-MINIMAL",
+    1: "MILD",
+    2: "MODERATE",
+    3: "MODERATELY SEVERE",
+    4: "SEVERE"
+}
 
 # ==========================================
 # ESQUEMAS PYDANTIC (VALIDACIÓN Y DOCS)
@@ -104,7 +119,6 @@ class GAD7InputData(BaseModel):
 # ==========================================
 
 def preprocesar_y_escalar_datos_18(datos: InputData) -> pd.DataFrame:
-    """Preprocesa y escala las variables continuas para modelos basados en 18 entradas (31 columnas final)."""
     df = pd.DataFrame([datos.model_dump()])
     
     columnas_numericas = [
@@ -138,7 +152,6 @@ def preprocesar_y_escalar_datos_18(datos: InputData) -> pd.DataFrame:
 
 
 def preprocesar_y_escalar_datos_21(datos: GAD7InputData) -> pd.DataFrame:
-    """Preprocesa y escala las variables continuas para modelos basados en 10 entradas (21 columnas final)."""
     df = pd.DataFrame([datos.model_dump()])
 
     columnas_numericas = ["Age", "Daily_Screen_Time_Hours", "Sleep_Duration_Hours"]
@@ -169,6 +182,13 @@ def preprocesar_y_escalar_datos_21(datos: GAD7InputData) -> pd.DataFrame:
 @app.get("/")
 def home():
     return {"mensaje": "API de Machine Learning activa. Revisa /docs"}
+
+
+@app.get("/app", response_class=FileResponse)
+def read_index():
+    if not os.path.exists("index.html"):
+        raise HTTPException(status_code=404, detail="No se encontró el archivo index.html")
+    return FileResponse("index.html")
 
 
 # 1. MWB Clasificador
@@ -225,12 +245,20 @@ def predict_gad7(data: GAD7InputData):
     try:
         df_input = preprocesar_y_escalar_datos_21(data)
         prediccion_num = int(modelo_gad7.predict(df_input)[0])
-        probs_list = modelo_gad7.predict_proba(df_input).tolist()[0] if hasattr(modelo_gad7, "predict_proba") else None
+        
+        probabilidades = None
+        if hasattr(modelo_gad7, "predict_proba"):
+            probs = modelo_gad7.predict_proba(df_input).tolist()[0]
+            probabilidades = {
+                CLASES_MAPA.get(i, f"Clase_{i}"): round(prob, 4) 
+                for i, prob in enumerate(probs)
+            }
+
         return {
             "status": "success",
             "prediction_code": prediccion_num,
             "addiction_level": CLASES_MAPA.get(prediccion_num, "Desconocido"),
-            "probabilities": probs_list
+            "probabilities": probabilidades
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error en predicción GAD-7 XGBoost: {str(e)}")
@@ -252,26 +280,27 @@ def predict_gad7_score(data: GAD7InputData):
         raise HTTPException(status_code=400, detail=f"Error en la predicción GAD-7 Regressor: {str(e)}")
 
 
-# 5. PHQ-9 Clasificador (XGBoost Classifier) -> Entrada: GAD7InputData (10 variables / 21 OHE)
+# 5. PHQ-9 Clasificador (XGBoost Classifier)
 @app.post("/predict-phq9", tags=["ml_predictions"], summary="Predecir Diagnóstico PHQ-9 (XGBoost Classifier)")
 def predict_phq9(data: GAD7InputData):
     if modelo_phq9 is None:
         raise HTTPException(status_code=500, detail=f"No se encontró el archivo '{PATH_PHQ9_XGB}'.")
     try:
         df_input = preprocesar_y_escalar_datos_21(data)
-        prediccion_clase = str(modelo_phq9.predict(df_input)[0])
+        prediccion_code = int(modelo_phq9.predict(df_input)[0])
         
         probabilidades = None
         if hasattr(modelo_phq9, "predict_proba"):
             probs = modelo_phq9.predict_proba(df_input).tolist()[0]
-            if hasattr(modelo_phq9, "classes_"):
-                probabilidades = {str(clase): round(prob, 4) for clase, prob in zip(modelo_phq9.classes_, probs)}
-            else:
-                probabilidades = [round(prob, 4) for prob in probs]
+            probabilidades = {
+                PHQ9_CLASES_MAPA.get(i, f"Clase_{i}"): round(prob, 4) 
+                for i, prob in enumerate(probs)
+            }
 
         return {
             "status": "success",
-            "phq9_severity": prediccion_clase,
+            "prediction_code": prediccion_code,
+            "phq9_severity": PHQ9_CLASES_MAPA.get(prediccion_code, "Desconocido"),
             "probabilities": probabilidades
         }
     except Exception as e:
