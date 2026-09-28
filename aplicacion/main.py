@@ -19,7 +19,13 @@ from langchain_classic.chains import RetrievalQA
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+import re
+import string
+import nltk
 
+from nltk.corpus import stopwords
+
+nltk.download("wordnet")
 # Ocultar advertencias de versiones
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
@@ -433,6 +439,59 @@ def preprocesar_y_escalar_datos_21(datos: GAD7InputData) -> pd.DataFrame:
     return df_encoded
 
 
+stop_words = set(stopwords.words("english"))
+lemmatizer = nltk.WordNetLemmatizer()
+
+
+def convertir_minusculas(texto):
+    return texto.lower()
+
+
+def eliminar_urls(texto):
+    return re.sub(r'http\S+|www\S+', '', texto)
+
+
+def eliminar_numeros(texto):
+    return re.sub(r'\d+', '', texto)
+
+
+def eliminar_puntuacion(texto):
+    return texto.translate(
+        str.maketrans('', '', string.punctuation)
+    )
+
+
+def tokenizar(texto):
+    return texto.split()
+
+
+def eliminar_stopwords(tokens):
+    return [
+        palabra for palabra in tokens
+        if palabra not in stop_words
+    ]
+
+
+def lematizar(tokens):
+    return [
+        lemmatizer.lemmatize(palabra)
+        for palabra in tokens
+    ]
+
+
+def preprocesar_statement(texto):
+
+    texto = convertir_minusculas(texto)
+    texto = eliminar_urls(texto)
+    texto = eliminar_numeros(texto)
+    texto = eliminar_puntuacion(texto)
+
+    tokens = tokenizar(texto)
+    tokens = eliminar_stopwords(tokens)
+    tokens = lematizar(tokens)
+
+    return " ".join(tokens)
+
 # ==========================================
 # ENDPOINTS
 # ==========================================
@@ -609,32 +668,60 @@ def cluster_user(data: InputData):
 
 
 # 8. Endpoint NLP (Clasificación de Texto: Ansiedad, Depresión o Normal)
-@app.post("/predict-nlp", tags=["nlp_predictions"], summary="Clasificar Texto (Ansiedad, Depresión o Normal)")
+@app.post("/predict-nlp",tags=["nlp_predictions"],summary="Clasificar Texto (Ansiedad, Depresión o Normal)")
 def predict_nlp(data: NLPInputData):
+
     if modelo_nlp is None:
-        raise HTTPException(status_code=500, detail=f"No se encontró el archivo '{PATH_NLP}'.")
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se encontró el archivo '{PATH_NLP}'."
+        )
+
     try:
-        # Se asume que modelo_nlp es un Pipeline de Scikit-Learn que acepta un iterable de textos
-        prediccion = modelo_nlp.predict([data.text])[0]
-        
+
+        # 1. Preprocesar el texto exactamente igual
+        #    que durante el entrenamiento
+        texto_procesado = preprocesar_statement(data.text)
+
+        # 2. Realizar predicción
+        prediccion = modelo_nlp.predict(
+            [texto_procesado]
+        )[0]
+
+        # 3. Obtener probabilidades si el modelo las permite
         probabilidades = None
+
         if hasattr(modelo_nlp, "predict_proba"):
-            probs = modelo_nlp.predict_proba([data.text]).tolist()[0]
+
+            probs = modelo_nlp.predict_proba(
+                [texto_procesado]
+            ).tolist()[0]
+
             if hasattr(modelo_nlp, "classes_"):
+
                 probabilidades = {
-                    str(clase): round(prob, 4) 
-                    for clase, prob in zip(modelo_nlp.classes_, probs)
+                    str(clase): round(prob, 4)
+                    for clase, prob in zip(
+                        modelo_nlp.classes_,
+                        probs
+                    )
                 }
 
+        # 4. Devolver resultado
         return {
             "status": "success",
             "text": data.text,
+            "processed_text": texto_procesado,
             "prediction": str(prediccion),
             "probabilities": probabilidades
         }
+
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error en la predicción NLP: {str(e)}")
-    from pydantic import BaseModel, Field
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error en la predicción NLP: {str(e)}"
+        )
 
 
 
