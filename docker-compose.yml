@@ -26,11 +26,17 @@ services:
     ports:
       - "11434:11434"
 
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
     volumes:
       - ollama_data:/root/.ollama
 
     restart: unless-stopped
-
 
 volumes:
   ollama_data:
