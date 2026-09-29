@@ -158,7 +158,7 @@ def cargar_sistema_rag():
         )
 
         print("3. Conectando con Ollama (llama3.1)...")
-        llm = ChatOllama(model="llama3.1", temperature=0)
+        llm = ChatOllama(model="llama3.1",base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),temperature=0)
 
         cadena_rag = RetrievalQA.from_chain_type(
             llm=llm,
