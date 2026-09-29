@@ -1,5 +1,9 @@
 # Proyecto Final — Machine Learning, Deep Learning, NLP y API
 
+Link a la presentación: https://www.canva.com/design/DAHWX-O9gII/mgcpXBBlodjL17hEawamOA/edit
+
+Link a la aplicación : http://34.175.15.142:8001/app
+
 ## 1. Descripción
 
 Este repositorio integra un proyecto de análisis y predicción relacionado con uso de redes sociales, bienestar, salud mental y clasificación de texto.
