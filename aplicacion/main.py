@@ -136,7 +136,7 @@ def cargar_sistema_rag():
     global cadena_rag
     try:
         if not os.path.exists("../models/IA/chroma_db"):
-            print(f"⚠️ Alerta: No se encontró la carpeta '{"../models/IA/chroma_db"}'. RAG no estará disponible.")
+            print(f"⚠️ Alerta: No se encontró la carpeta '../models/IA/chroma_db'. RAG no estará disponible.")
             return
 
         print("1. Cargando embeddings y Chroma DB desde disco...")
