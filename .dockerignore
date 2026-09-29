@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.log
+.git
+.gitignore
+Dockerfile
+README.md
+Data
+Visualizaciones
+Machine_Learning
+Preprocesado
+Deep_Learning
+NLP

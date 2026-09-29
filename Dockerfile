@@ -1,16 +1,37 @@
 FROM python:3.11-slim
-ENV PYTHONUNBUFFERED=1
 
-# Definimos el directorio de trabajo primero
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Directorio donde estará FastAPI
 WORKDIR /app
 
-# Copiamos el requirements asumiendo que está dentro de app/
-COPY app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Dependencias del sistema necesarias para algunas librerías
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copiamos el resto del código y los modelos a la raíz del contenedor
-COPY app/ /app/
+# Copiamos requirements
+COPY requirements.txt /app/requirements.txt
+
+# Instalamos dependencias Python
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Recursos NLTK necesarios para el NLP
+RUN python -c "import nltk; nltk.download('stopwords'); nltk.download('wordnet')"
+
+# Copiamos la aplicación
+COPY aplicacion/main.py /app/main.py
+COPY aplicacion/index.html /app/index.html
+
+# Copiamos los modelos
 COPY models/ /models/
 
-EXPOSE 8080
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# FastAPI
+EXPOSE 8001
+
+# Arrancamos Uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
